@@ -150,3 +150,61 @@ def get_boreholes():
 if __name__ == "__main__":
     init_db()
     app.run(debug=True)
+# Add Borehole Data with Error Handling
+@app.route('/add_borehole', methods=['POST'])
+def add_borehole():
+    data = request.json
+    conn = get_db_connection()
+    try:
+        conn.execute('''INSERT INTO Borehole (hole_id, azimuth, inclination, depth, northing, easting, tvd, deviation)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                     (data['hole_id'], data['azimuth'], data['inclination'], data['depth'],
+                      data['northing'], data['easting'], data['tvd'], data['deviation']))
+        conn.commit()
+        return jsonify({"message": "Borehole added successfully!"})
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Hole ID already exists!"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500  # ✅ Now returns JSON properly
+    finally:
+        conn.close()
+
+# Fetch All Borehole Data with Error Handling
+@app.route('/get_boreholes', methods=['GET'])
+def get_boreholes():
+    try:
+        conn = get_db_connection()
+        data = conn.execute('SELECT * FROM Borehole').fetchall()
+        conn.close()
+        return jsonify([dict(row) for row in data])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+async function submitBorehole() {
+    const formData = {
+        hole_id: document.getElementById('hole_id').value,
+        azimuth: parseFloat(document.getElementById('azimuth').value),
+        inclination: parseFloat(document.getElementById('inclination').value),
+        depth: parseFloat(document.getElementById('depth').value),
+        northing: parseFloat(document.getElementById('northing').value),
+        easting: parseFloat(document.getElementById('easting').value),
+        tvd: parseFloat(document.getElementById('tvd').value),
+        deviation: parseFloat(document.getElementById('deviation').value)
+    };
+
+    try {
+        const response = await fetch('/add_borehole', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+
+        const result = await response.json();
+        if (response.ok) {
+            alert(result.message);
+        } else {
+            alert("Error: " + result.error);
+        }
+    } catch (error) {
+        alert("Error submitting data. Please try again.");
+    }
+}
