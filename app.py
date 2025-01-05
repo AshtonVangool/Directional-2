@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify, render_template_string
+from flask_cors import CORS
 import sqlite3
 
 app = Flask(__name__)
+CORS(app)
 
-# Initialize the SQLite database
+# Initialize SQLite database
 def get_db_connection():
     conn = sqlite3.connect('database.db')
     conn.row_factory = sqlite3.Row
@@ -21,94 +23,70 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ✅ HTML Template Served Directly from Flask (No External Fetch Requests)
-HTML_TEMPLATE = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Directional Drilling App</title>
-    <script>
-        async function submitData() {
-            const formData = {
-                hole_id: document.getElementById('hole_id').value,
-                azimuth: parseFloat(document.getElementById('azimuth').value),
-                inclination: parseFloat(document.getElementById('inclination').value),
-                depth: parseFloat(document.getElementById('depth').value)
-            };
-            const response = await fetch('/add', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
-            });
-            const result = await response.json();
-            alert(result.message);
-        }
+# ✅ Fixed: Proper JSON Response Handling for Errors
+@app.errorhandler(500)
+def handle_500_error(error):
+    return jsonify({"error": "Internal Server Error", "details": str(error)}), 500
 
-        async function fetchEntries() {
-            const response = await fetch('/easiernav');
-            const entries = await response.json();
-            const list = document.getElementById('entries');
-            list.innerHTML = '';
-            entries.forEach(entry => {
-                const item = document.createElement('li');
-                item.textContent = `Hole ID: ${entry.hole_id}, Azimuth: ${entry.azimuth}`;
-                list.appendChild(item);
-            });
-        }
+@app.errorhandler(404)
+def handle_404_error(error):
+    return jsonify({"error": "Resource Not Found"}), 404
 
-        window.onload = fetchEntries;
-    </script>
-</head>
-<body>
-    <h1>Directional Drilling App</h1>
-    <form onsubmit="event.preventDefault(); submitData();">
-        Hole ID: <input type="text" id="hole_id" required><br>
-        Azimuth: <input type="number" step="0.01" id="azimuth" required><br>
-        Inclination: <input type="number" step="0.01" id="inclination" required><br>
-        Depth: <input type="number" step="0.01" id="depth" required><br>
-        <button type="submit">Submit</button>
-    </form>
-    <h2>Entries</h2>
-    <ul id="entries"></ul>
-</body>
-</html>
-'''
-
-# ✅ Serve the HTML and Backend Together (No CORS Needed)
+# ✅ Homepage (No Change)
 @app.route('/')
 def home():
-    return render_template_string(HTML_TEMPLATE)
+    return '''
+    <h1>Directional Drilling App</h1>
+    <form action="/add" method="post">
+        Hole ID: <input type="text" name="hole_id" required><br>
+        Azimuth: <input type="number" step="0.01" name="azimuth" required><br>
+        Inclination: <input type="number" step="0.01" name="inclination" required><br>
+        Depth: <input type="number" step="0.01" name="depth" required><br>
+        <input type="submit" value="Submit">
+    </form>
+    <a href="/easiernav">View Data</a>
+    '''
 
-# ✅ Add Borehole Data
+# ✅ Add Borehole Data (Improved Error Handling)
 @app.route('/add', methods=['POST'])
 def add_data():
-    data = request.json
-    hole_id = data['hole_id']
-    azimuth = data['azimuth']
-    inclination = data['inclination']
-    depth = data['depth']
-
-    conn = get_db_connection()
     try:
+        hole_id = request.form['hole_id']
+        azimuth = float(request.form['azimuth'])
+        inclination = float(request.form['inclination'])
+        depth = float(request.form['depth'])
+
+        conn = get_db_connection()
         conn.execute('INSERT INTO Borehole (hole_id, azimuth, inclination, depth) VALUES (?, ?, ?, ?)',
                      (hole_id, azimuth, inclination, depth))
         conn.commit()
-    except sqlite3.IntegrityError:
-        return jsonify({"error": "Hole ID already exists. Please try again."}), 400
-    finally:
         conn.close()
-    return jsonify({"message": "Borehole data added successfully!"})
+        return jsonify({"message": "Borehole data added successfully!"}), 201
 
-# ✅ Fetch Borehole Data
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Duplicate Hole ID. Please use a unique ID."}), 400
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ✅ Fetch Borehole Data (Proper JSON Return)
 @app.route('/easiernav', methods=['GET'])
 def get_data():
-    conn = get_db_connection()
-    data = conn.execute('SELECT * FROM Borehole').fetchall()
-    conn.close()
-    return jsonify([dict(row) for row in data])
+    try:
+        conn = get_db_connection()
+        data = conn.execute('SELECT * FROM Borehole').fetchall()
+        conn.close()
+        return jsonify([dict(row) for row in data])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
+# ✅ Fix for Missing Favicon Errors
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
+# ✅ Initialize Database and Run
 if __name__ == "__main__":
     init_db()
     app.run(debug=True)
-
 
